@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""mdread: pretty markdown reader for the terminal. Usage: mdread FILE.md | cmd | mdread"""
+import os
+import sys
+from pathlib import Path
+
+from textual.app import App
+from textual.widgets import Footer, Header, MarkdownViewer
+
+
+class MdRead(App):
+    TITLE = "mdread"
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("t", "toc", "TOC"),
+        ("r", "reload", "Reload"),
+        ("j", "scroll_down", "Down"),
+        ("k", "scroll_up", "Up"),
+        ("space", "page_down", "Page"),
+        ("b", "page_up", "Back"),
+        ("g", "scroll_home", "Top"),
+        ("G", "scroll_end", "End"),
+    ]
+
+    def __init__(self, text: str, path: Path | None):
+        super().__init__()
+        self.text, self.path = text, path
+
+    def compose(self):
+        yield Header()
+        yield MarkdownViewer(self.text, show_table_of_contents=True, open_links=False)
+        yield Footer()
+
+    def on_mount(self):
+        self.sub_title = self.path.name if self.path else "stdin"
+        self.query_one(MarkdownViewer).focus()
+
+    @property
+    def viewer(self) -> MarkdownViewer:
+        return self.query_one(MarkdownViewer)
+
+    def action_toc(self):
+        self.viewer.show_table_of_contents ^= True
+
+    def action_reload(self):
+        if self.path:
+            self.viewer.document.update(self.path.read_text())
+
+    def action_scroll_down(self):
+        self.viewer.scroll_down()
+
+    def action_scroll_up(self):
+        self.viewer.scroll_up()
+
+    def action_page_down(self):
+        self.viewer.scroll_page_down()
+
+    def action_page_up(self):
+        self.viewer.scroll_page_up()
+
+    def action_scroll_home(self):
+        self.viewer.scroll_home()
+
+    def action_scroll_end(self):
+        self.viewer.scroll_end()
+
+    async def on_markdown_link_clicked(self, event):
+        href = event.href
+        if href.startswith(("http://", "https://")):
+            self.open_url(href)
+        elif self.path and not href.startswith("#"):
+            target = (self.path.parent / href.split("#")[0]).resolve()
+            if target.is_file():
+                self.path = target
+                self.sub_title = target.name
+                await self.viewer.go(target)
+
+
+def main():
+    if len(sys.argv) > 1:
+        path = Path(sys.argv[1])
+        if not path.is_file():
+            sys.exit(f"mdread: no such file: {path}")
+        text = path.read_text()
+    elif not sys.stdin.isatty():
+        path, text = None, sys.stdin.read()
+        os.dup2(os.open("/dev/tty", os.O_RDONLY), 0)  # keys need a tty
+        sys.stdin = open(0)
+    else:
+        sys.exit("usage: mdread FILE.md  (or: cmd | mdread)")
+    MdRead(text, path).run()
+
+
+if __name__ == "__main__":
+    main()
